@@ -17,7 +17,10 @@
 #ifndef MOVIDIUS_NCS_STREAM_NCS_NODELET_H
 #define MOVIDIUS_NCS_STREAM_NCS_NODELET_H
 
+#include <chrono>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <nodelet/nodelet.h>
@@ -37,10 +40,11 @@ public:
 private:
   void cbClassify(const sensor_msgs::ImageConstPtr& image);
   void cbDetect(const sensor_msgs::ImageConstPtr& image);
+  void deviceThread(int device_index);
   void getParameters();
   void init();
 
-  std::shared_ptr<movidius_ncs_lib::NCS> ncs_handle_;
+  std::vector<std::shared_ptr<movidius_ncs_lib::NCS>> ncs_handle_;
 
   ros::Publisher pub_;
   image_transport::Subscriber sub_;
@@ -56,6 +60,12 @@ private:
   std::vector<float> mean_;
   float scale_;
   int top_n_;
+  std::vector<sensor_msgs::ImageConstPtr> image_list_;
+  std::vector<std::thread> threads_;
+  std::mutex mtx_;
+  unsigned int fps_;
+  unsigned char last_fps_;
+  std::chrono::steady_clock::time_point timer_;
 };
 
 class NCSNodelet: public nodelet::Nodelet

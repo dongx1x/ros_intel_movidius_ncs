@@ -31,7 +31,7 @@ int main(int argc, char** argv)
   ros::ServiceClient client;
   client = n.serviceClient<movidius_ncs_msgs::ClassifyObject>("/movidius_ncs_image/classify_object");
   movidius_ncs_msgs::ClassifyObject srv;
-  srv.request.image_path = argv[1];
+  srv.request.image_path[0] = argv[1];
 
   if (!client.call(srv))
   {
@@ -39,13 +39,13 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  for (unsigned int i = 0; i < srv.response.objects.objects_vector.size(); i++)
+  for (unsigned int i = 0; i < srv.response.objects[0].objects_vector.size(); i++)
   {
     ROS_INFO("%d: object: %s\nprobability: %lf%%", i,
-             srv.response.objects.objects_vector[i].object_name.c_str(),
-             srv.response.objects.objects_vector[i].probability * 100);
+             srv.response.objects[0].objects_vector[i].object_name.c_str(),
+             srv.response.objects[0].objects_vector[i].probability * 100);
   }
 
-  ROS_INFO("inference time: %fms", srv.response.objects.inference_time_ms);
+  ROS_INFO("inference time: %fms", srv.response.objects[0].inference_time_ms);
   return 0;
 }

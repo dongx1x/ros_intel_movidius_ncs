@@ -42,6 +42,7 @@ add_executable(${PROJECT_NAME}_image_classification src/image_classification.cpp
 add_executable(${PROJECT_NAME}_image_detection src/image_detection.cpp)
 add_executable(${PROJECT_NAME}_stream_classification src/stream_classification.cpp)
 add_executable(${PROJECT_NAME}_stream_detection src/stream_detection.cpp)
+add_executable(${PROJECT_NAME}_image_classification_parallel src/image_classification_parallel.cpp)
 
 add_dependencies(${PROJECT_NAME}_image_classification
                  ${${PROJECT_NAME}_EXPORTED_TARGETS} 
@@ -57,6 +58,10 @@ add_dependencies(${PROJECT_NAME}_stream_classification
 
 add_dependencies(${PROJECT_NAME}_stream_detection
                  ${${PROJECT_NAME}_EXPORTED_TARGETS}
+                 ${catkin_EXPORTED_TARGETS})
+
+add_dependencies(${PROJECT_NAME}_image_classification_parallel
+                 ${${PROJECT_NAME}_EXPORTED_TARGETS} 
                  ${catkin_EXPORTED_TARGETS})
 
 target_link_libraries(${PROJECT_NAME}_image_classification
@@ -78,6 +83,12 @@ target_link_libraries(${PROJECT_NAME}_stream_detection
   ${catkin_LIBRARIES}
   ${OpenCV_LIBRARIES}
 )
+
+target_link_libraries(${PROJECT_NAME}_image_classification_parallel
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+)
+
 # Flags
 if(UNIX OR APPLE)
   # Linker flags.

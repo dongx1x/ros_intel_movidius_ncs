@@ -15,6 +15,7 @@
  */
 
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <cv_bridge/cv_bridge.h>
@@ -39,7 +40,7 @@ using movidius_ncs_lib::Device;
 namespace movidius_ncs_stream
 {
 NCSImpl::NCSImpl(ros::NodeHandle& nh, ros::NodeHandle& pnh)
-    : ncs_handle_(nullptr),
+    : ncs_handle_(0, nullptr),
       nh_(nh),
       pnh_(pnh),
       device_index_(0),
@@ -50,7 +51,9 @@ NCSImpl::NCSImpl(ros::NodeHandle& nh, ros::NodeHandle& pnh)
       network_dimension_(0),
       mean_(0),
       scale_(1.0),
-      top_n_(1)
+      top_n_(1),
+      fps_(0),
+      last_fps_(0)
 {
   getParameters();
   init();
@@ -187,18 +190,32 @@ void NCSImpl::getParameters()
   ROS_INFO_STREAM("use scale = " << scale_);
 }
 
+void do_join(std::thread& t)
+{
+  t.join();
+}
+
 void NCSImpl::init()
 {
   ROS_DEBUG("NCSImpl onInit");
-  ncs_handle_ = std::make_shared<movidius_ncs_lib::NCS>(device_index_,
-                                                        static_cast<Device::LogLevel>(log_level_),
-                                                        cnn_type_,
-                                                        graph_file_path_,
-                                                        category_file_path_,
-                                                        network_dimension_,
-                                                        mean_,
-                                                        scale_,
-                                                        top_n_);
+  int device_count = 0;
+  char device_name[100];
+  while (mvncGetDeviceName(device_count, device_name, 100) != MVNC_DEVICE_NOT_FOUND)
+  {
+    auto ncs_handle = std::make_shared<movidius_ncs_lib::NCS>(device_count,
+                                                          static_cast<Device::LogLevel>(log_level_),
+                                                          cnn_type_,
+                                                          graph_file_path_,
+                                                          category_file_path_,
+                                                          network_dimension_,
+                                                          mean_,
+                                                          scale_,
+                                                          top_n_);
+    ncs_handle_.push_back(ncs_handle);
+    threads_.push_back(std::thread(&NCSImpl::deviceThread, this, device_count));
+    device_count++;
+  }
+
   boost::shared_ptr<ImageTransport> it = boost::make_shared<ImageTransport>(nh_);
 
   if (!cnn_type_.compare("alexnet") || !cnn_type_.compare("googlenet")
@@ -214,6 +231,8 @@ void NCSImpl::init()
     sub_ = it->subscribe("/camera/rgb/image_raw", 1, &NCSImpl::cbDetect, this);
     pub_ = nh_.advertise<movidius_ncs_msgs::ObjectsInBoxes>("detected_objects", 1);
   }
+  std::for_each(threads_.begin(), threads_.end(), do_join);
+  timer_ = std::chrono::steady_clock::now();
 }
 
 void NCSImpl::cbClassify(const sensor_msgs::ImageConstPtr& image_msg)
@@ -226,9 +245,9 @@ void NCSImpl::cbClassify(const sensor_msgs::ImageConstPtr& image_msg)
 
   cv::Mat cameraData = cv_bridge::toCvCopy(image_msg, "bgr8")->image;
   boost::posix_time::ptime start = boost::posix_time::microsec_clock::local_time();
-  ncs_handle_->loadTensor(cameraData);
-  ncs_handle_->classify();
-  ClassificationResultPtr result = ncs_handle_->getClassificationResult();
+  ncs_handle_[0]->loadTensor(cameraData);
+  ncs_handle_[0]->classify();
+  ClassificationResultPtr result = ncs_handle_[0]->getClassificationResult();
   boost::posix_time::ptime end = boost::posix_time::microsec_clock::local_time();
   boost::posix_time::time_duration msdiff = end - start;
   movidius_ncs_msgs::Objects objs;
@@ -249,16 +268,31 @@ void NCSImpl::cbClassify(const sensor_msgs::ImageConstPtr& image_msg)
   pub_.publish(objs);
 }
 
-void NCSImpl::cbDetect(const sensor_msgs::ImageConstPtr& image_msg)
+void NCSImpl::deviceThread(int device_index)
 {
-  cv::Mat cameraData = cv_bridge::toCvCopy(image_msg, "bgr8")->image;
-  boost::posix_time::ptime start = boost::posix_time::microsec_clock::local_time();
-  ncs_handle_->loadTensor(cameraData);
-  ncs_handle_->detect();
-  DetectionResultPtr result = ncs_handle_->getDetectionResult();
-  boost::posix_time::ptime end = boost::posix_time::microsec_clock::local_time();
-  boost::posix_time::time_duration msdiff = end -start;
-  movidius_ncs_msgs::ObjectsInBoxes objs_in_boxes;
+  while(1)
+  {
+    if (!image_list_.empty())
+    {
+      //std::cout<<"deviceThread"<<std::endl;
+      mtx_.lock();
+      auto first_image = image_list_[0];
+      if (!image_list_.empty())
+      {
+        image_list_.erase(image_list_.begin());
+      }
+      else
+      {
+        mtx_.unlock();
+        continue;
+      }
+      mtx_.unlock();
+
+      cv::Mat cameraData = cv_bridge::toCvCopy(first_image, "bgr8")->image;
+      ncs_handle_[device_index]->loadTensor(cameraData);
+      ncs_handle_[device_index]->detect();
+      DetectionResultPtr result = ncs_handle_[device_index]->getDetectionResult();
+      movidius_ncs_msgs::ObjectsInBoxes objs_in_boxes;
 
   for (auto item : result->items_in_boxes)
   {
@@ -272,12 +306,30 @@ void NCSImpl::cbDetect(const sensor_msgs::ImageConstPtr& image_msg)
     objs_in_boxes.objects_vector.push_back(obj);
   }
 
-  objs_in_boxes.header = image_msg->header;
+      objs_in_boxes.header = first_image->header;
   objs_in_boxes.inference_time_ms = result->time_taken;
-  objs_in_boxes.fps = 1000.0 / msdiff.total_milliseconds();
-  ROS_DEBUG_STREAM("Total time: " << msdiff.total_milliseconds() << "ms");
-  ROS_DEBUG_STREAM("Inference time: " << objs_in_boxes.inference_time_ms << "ms");
-  pub_.publish(objs_in_boxes);
+      objs_in_boxes.fps = last_fps_;
+      if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - timer_).count() >= 1000)
+      {
+        timer_ = std::chrono::steady_clock::now();
+        last_fps_ = fps_;
+        fps_ = 0;
+      }
+      pub_.publish(objs_in_boxes);
+      fps_ += 1;
+    }
+  }
+}
+
+void NCSImpl::cbDetect(const sensor_msgs::ImageConstPtr& image_msg)
+{
+  mtx_.lock();
+  image_list_.push_back(boost::make_shared<sensor_msgs::Image>(*image_msg));
+  if (image_list_.size() > 10)
+  {
+    image_list_.erase(image_list_.begin());
+  }
+  mtx_.unlock();
 }
 
 NCSNodelet::~NCSNodelet()

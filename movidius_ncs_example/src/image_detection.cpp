@@ -34,7 +34,7 @@ int main(int argc, char** argv)
   ros::ServiceClient client;
   client = n.serviceClient<movidius_ncs_msgs::DetectObject>("/movidius_ncs_image/detect_object");
   movidius_ncs_msgs::DetectObject srv;
-  srv.request.image_path = argv[1];
+  srv.request.image_path[0] = argv[1];
 
   if (!client.call(srv))
   {
@@ -46,24 +46,24 @@ int main(int argc, char** argv)
   int width = image.cols;
   int height = image.rows;
 
-  for (unsigned int i = 0; i < srv.response.objects.objects_vector.size(); i++)
+  for (unsigned int i = 0; i < srv.response.objects[0].objects_vector.size(); i++)
   {
     std::stringstream ss;
-    ss << srv.response.objects.objects_vector[i].object.object_name << ": "
-       << srv.response.objects.objects_vector[i].object.probability * 100 << "%";
+    ss << srv.response.objects[0].objects_vector[i].object.object_name << ": "
+       << srv.response.objects[0].objects_vector[i].object.probability * 100 << "%";
 
-    ROS_INFO("%d: object: %s", i, srv.response.objects.objects_vector[i].object.object_name.c_str());
-    ROS_INFO("prob: %f", srv.response.objects.objects_vector[i].object.probability);
+    ROS_INFO("%d: object: %s", i, srv.response.objects[0].objects_vector[i].object.object_name.c_str());
+    ROS_INFO("prob: %f", srv.response.objects[0].objects_vector[i].object.probability);
     ROS_INFO("location: (%d, %d, %d, %d)",
-             srv.response.objects.objects_vector[i].roi.x_offset,
-             srv.response.objects.objects_vector[i].roi.y_offset,
-             srv.response.objects.objects_vector[i].roi.width,
-             srv.response.objects.objects_vector[i].roi.height);
+             srv.response.objects[0].objects_vector[i].roi.x_offset,
+             srv.response.objects[0].objects_vector[i].roi.y_offset,
+             srv.response.objects[0].objects_vector[i].roi.width,
+             srv.response.objects[0].objects_vector[i].roi.height);
 
-    int x = srv.response.objects.objects_vector[i].roi.x_offset;
-    int y = srv.response.objects.objects_vector[i].roi.y_offset;
-    int w = srv.response.objects.objects_vector[i].roi.width;
-    int h = srv.response.objects.objects_vector[i].roi.height;
+    int x = srv.response.objects[0].objects_vector[i].roi.x_offset;
+    int y = srv.response.objects[0].objects_vector[i].roi.y_offset;
+    int w = srv.response.objects[0].objects_vector[i].roi.width;
+    int h = srv.response.objects[0].objects_vector[i].roi.height;
 
     int xmin = ((x - w / 2) > 0)? (x - w / 2) : 0;
     int xmax = ((x + w / 2) < width)? (x + w / 2) : width;
@@ -77,7 +77,7 @@ int main(int argc, char** argv)
     cv::putText(image, ss.str(), cvPoint(xmin + 5, ymin + 20), cv::FONT_HERSHEY_PLAIN,
                 1, cv::Scalar(0, 0, 255), 1);
   }
-    ROS_INFO("inference time: %fms", srv.response.objects.inference_time_ms);
+    ROS_INFO("inference time: %fms", srv.response.objects[0].inference_time_ms);
     cv::imshow("image_detection", image);
     cv::waitKey(0);
     return 0;

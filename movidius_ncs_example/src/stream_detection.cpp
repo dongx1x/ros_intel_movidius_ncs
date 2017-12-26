@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#include <chrono>
+
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
@@ -27,12 +29,15 @@
 
 #define LINESPACING 20
 
+static std::chrono::steady_clock::time_point timer_;
+
 void syncCb(const sensor_msgs::ImageConstPtr& img,
             const movidius_ncs_msgs::ObjectsInBoxes::ConstPtr& objs_in_boxes)
 {
   cv::Mat cvImage = cv_bridge::toCvShare(img, "bgr8")->image;
   int width = img->width;
   int height = img->height;
+  static unsigned int fps = 0, last_fps = 0;
 
   for (auto obj : objs_in_boxes->objects_vector)
   {
@@ -58,7 +63,16 @@ void syncCb(const sensor_msgs::ImageConstPtr& img,
   }
 
   std::stringstream ss;
-  ss << "FPS: " << objs_in_boxes->fps;
+  // ss << "FPS: " << objs_in_boxes->fps;
+  if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - timer_).count() >= 1000)
+  {
+    timer_ = std::chrono::steady_clock::now();
+    last_fps = fps;
+    fps = 0;
+  }
+  ss << "FPS: " << last_fps;
+  
+  fps += 1;
   cv::putText(cvImage, ss.str(), cvPoint(LINESPACING, LINESPACING),
               cv::FONT_HERSHEY_PLAIN, 1, cv::Scalar(0, 255, 0));
   cv::imshow("image_viewer", cvImage);

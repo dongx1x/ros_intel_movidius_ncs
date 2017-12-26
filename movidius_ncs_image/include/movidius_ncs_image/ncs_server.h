@@ -43,7 +43,7 @@ private:
                       movidius_ncs_msgs::DetectObject::Response& response);
   ros::ServiceServer service_;
 
-  std::shared_ptr<movidius_ncs_lib::NCS> ncs_handle_;
+  std::vector<std::shared_ptr<movidius_ncs_lib::NCS>> ncs_handle_;
   ros::NodeHandle nh_;
 
   int device_index_;
